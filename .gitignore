@@ -1,0 +1,34 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Datasets (downloaded or generated locally)
+data/
+
+# Training / inference outputs (Ultralytics writes to runs/)
+runs/
+
+# Trained model weights
+*.pt
+
+# Test and tooling caches
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Secrets and local configuration
+.env
+*.env
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

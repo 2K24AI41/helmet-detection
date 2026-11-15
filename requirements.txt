@@ -1,0 +1,9 @@
+# Local CPU inference dependencies for Real-Time Motorcycle Helmet Detection.
+# Install into the project virtual environment (Python 3.10) only.
+# Training happens on Google Colab and is not listed here.
+
+# YOLO11 support requires Ultralytics 8.3.0 or newer.
+ultralytics>=8.3.0,<9.0
+
+# Webcam capture and drawing.
+opencv-python>=4.8.0,<5.0
