@@ -1,0 +1,35 @@
+# Default configuration for the dataset preparation pipeline.
+# Every value is configurable. Changes are recorded in each report via a config hash.
+
+# Training image size used to project box sizes (YOLO default input).
+train_imgsz: 640
+projection: letterbox            # letterbox | stretch
+
+# Boxes whose projected short side is below this value get a REVIEW item.
+# They are never rejected automatically.
+min_projected_side_px: 16
+
+# Boxes extending outside the image by at most this many pixels go to REVIEW.
+# Boxes are never clipped without an explicit, recorded reviewer decision.
+oob_tolerance_px: 2
+
+# Near-duplicate candidates: maximum Hamming distance between 64-bit dHashes.
+dhash_max_distance: 6
+
+# Groups larger than this fraction of all images are flagged for review.
+max_group_fraction: 0.05
+
+dedup:
+  # Minimum IoU for one-to-one box matching between exact-duplicate images.
+  box_match_iou: 0.95
+
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+  seed: 42
+
+ledger:
+  # Location for versioned backups of the split ledger (outside the project's
+  # data/ directory). Must be chosen before Milestone 1.6.
+  backup_dir: null

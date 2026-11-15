@@ -1,0 +1,16 @@
+# Dependencies for the dataset preparation pipeline (src/helmet_data).
+# Kept separate from requirements.txt, which lists local inference dependencies only.
+# Install into the project virtual environment (Python 3.10) only.
+
+# Image decoding and dHash. Pinned exactly because dHash values can depend on the
+# Pillow resampling implementation. Version resolved and verified on 2026-11-15.
+Pillow==12.3.0
+
+# Array operations.
+numpy>=1.26
+
+# Configuration files.
+PyYAML>=6.0
+
+# Safe Pascal VOC XML parsing.
+defusedxml>=0.7
