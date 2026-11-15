@@ -409,3 +409,153 @@ def test_ambiguous_numbers_are_rejected_inside_nested_sections_and_keys(tmp_path
         load_config(write_yaml(tmp_path, "dedup: {box_match_iou: 1:0}\n"))
     with pytest.raises(ConfigError, match="ambiguous legacy YAML 1.1"):
         load_config(write_yaml(tmp_path, "split: {train: 0.8, val: 0.1, test: 0.1}\nledger: {backup_dir: x}\n010: 1\n"))
+
+
+# =========================================================================== #
+# Milestone 1.2.0: load_yaml_strict is public and behaves exactly as before
+# =========================================================================== #
+CORPUS = [
+    "",
+    "train_imgsz: 320\n",
+    "split: {train: 0.7, val: 0.2, test: 0.1, seed: 7}\n",
+    "ledger: {backup_dir: 'E:/x'}\n",
+    "dedup: {box_match_iou: 0.9}\nprojection: stretch\n",
+    "unknown_key: 1\n",
+    "train_imgsz: 010\n",
+    "train_imgsz: 6:40\n",
+    "train_imgsz: 320\ntrain_imgsz: 640\n",
+    "train_imgsz: !!python/object/apply:os.getcwd []\n",
+    "split: {train: 0.8\n",
+    "- just\n- a list\n",
+    "train_imgsz:\n",
+]
+
+
+def test_load_yaml_strict_is_public_and_returns_raw_data(tmp_path: Path) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    path = write_yaml(tmp_path, "a: 1\nb: [1, 2]\nc: {d: x}\n")
+    assert load_yaml_strict(path) == {"a": 1, "b": [1, 2], "c": {"d": "x"}}
+    assert load_yaml_strict(str(path)) == {"a": 1, "b": [1, 2], "c": {"d": "x"}}
+    assert load_yaml_strict(write_yaml(tmp_path, "")) is None
+    assert load_yaml_strict(write_yaml(tmp_path, "- a\n- b\n")) == ["a", "b"]
+
+
+@pytest.mark.parametrize("text", CORPUS)
+def test_load_config_is_exactly_load_yaml_strict_followed_by_parse_config(tmp_path: Path, text: str) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    path = write_yaml(tmp_path, text)
+    try:
+        data = load_yaml_strict(path)
+        expected = parse_config({} if data is None else data)
+        expected_error = None
+    except ConfigError as exc:
+        expected, expected_error = None, str(exc)
+    try:
+        actual, actual_error = load_config(path), None
+    except ConfigError as exc:
+        actual, actual_error = None, str(exc)
+    assert actual == expected
+    assert actual_error == expected_error
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("train_imgsz: 320\ntrain_imgsz: 640\n", "duplicate key"),
+        ("a: {b: 1, b: 2}\n", "duplicate key"),
+        ("a: 010\n", "ambiguous legacy YAML 1.1 integer"),
+        ("a: 0640\n", "ambiguous legacy YAML 1.1 integer"),
+        ("a: 6:40\n", "ambiguous legacy YAML 1.1 integer"),
+        ("a: 1:30.5\n", "ambiguous legacy YAML 1.1 float"),
+        ("a: !!python/object/apply:os.getcwd []\n", "invalid YAML"),
+        ("a: {b: 1\n", "invalid YAML"),
+        ("a: [1, 2\nb: 3\n", "invalid YAML"),
+    ],
+)
+def test_load_yaml_strict_keeps_every_strict_parsing_rule(tmp_path: Path, text: str, message: str) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    with pytest.raises(ConfigError, match=message):
+        load_yaml_strict(write_yaml(tmp_path, text))
+
+
+def test_load_yaml_strict_accepts_what_load_config_accepts(tmp_path: Path) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    for text in ("train_imgsz: 640\n", "train_imgsz: 1_000\n", "train_imgsz: 0x280\n", "min_projected_side_px: 010.5\n",
+                 "a: '010'\n", "a: '6:40'\n", "a: 0\n", "a: -5\n", "a: 0.5\n"):
+        assert load_yaml_strict(write_yaml(tmp_path, text)) is not None
+    assert load_yaml_strict(write_yaml(tmp_path, "a: '010'\n")) == {"a": "010"}
+    assert load_yaml_strict(write_yaml(tmp_path, "a: 1_000\n")) == {"a": 1000}
+    assert load_yaml_strict(write_yaml(tmp_path, "a: 0x10\n")) == {"a": 16}
+
+
+def test_load_yaml_strict_error_messages_are_unchanged_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    missing = tmp_path / "nope.yaml"
+    with pytest.raises(ConfigError) as info:
+        load_yaml_strict(missing)
+    assert str(info.value) == f"configuration file not found: {missing}"
+    with pytest.raises(ConfigError) as via_config:
+        load_config(missing)
+    assert str(via_config.value) == str(info.value)
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_bytes(b"a: \xff\xfe\n")
+    with pytest.raises(ConfigError, match="cannot read configuration file") as undecodable:
+        load_yaml_strict(bad)
+    with pytest.raises(ConfigError) as via_config2:
+        load_config(bad)
+    assert str(undecodable.value) == str(via_config2.value)
+
+    path = write_yaml(tmp_path, "a: 1\n")
+
+    def deny(self, *args, **kwargs):
+        raise PermissionError("access denied")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "open", deny)
+        with pytest.raises(ConfigError, match="cannot read configuration file"):
+            load_yaml_strict(path)
+        with pytest.raises(ConfigError, match="cannot read configuration file"):
+            load_config(path)
+
+
+def test_load_yaml_strict_what_appears_in_exactly_the_documented_two_messages(tmp_path: Path) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    # "invalid YAML in <path>" never mentions `what`, whatever its value
+    bad_yaml = write_yaml(tmp_path, "a: {b: 1\n")
+    with pytest.raises(ConfigError) as info:
+        load_yaml_strict(bad_yaml, what="dataset configuration")
+    assert str(info.value).startswith("invalid YAML in ") and "dataset configuration" not in str(info.value)
+    with pytest.raises(ConfigError) as default_info:
+        load_yaml_strict(bad_yaml)
+    assert str(default_info.value) == str(info.value)
+
+
+def test_load_yaml_strict_what_only_changes_the_wording(tmp_path: Path) -> None:
+    from helmet_data.config import load_yaml_strict
+
+    with pytest.raises(ConfigError, match="dataset configuration not found"):
+        load_yaml_strict(tmp_path / "x.yaml", what="dataset configuration")
+    bad = tmp_path / "bad.yaml"
+    bad.write_bytes(b"\xff\xfe")
+    with pytest.raises(ConfigError, match="cannot read dataset configuration"):
+        load_yaml_strict(bad, what="dataset configuration")
+    # strictness is identical whatever the label
+    with pytest.raises(ConfigError, match="duplicate key"):
+        load_yaml_strict(write_yaml(tmp_path, "a: 1\na: 2\n"), what="dataset configuration")
+    with pytest.raises(ConfigError, match="not found"):
+        load_yaml_strict(tmp_path)  # a directory is not a file
+
+
+def test_load_yaml_strict_is_a_public_name_and_the_private_loader_stays_private() -> None:
+    import helmet_data.config as module
+
+    assert callable(module.load_yaml_strict)
+    assert module.load_yaml_strict.__doc__
+    assert issubclass(module._StrictLoader, __import__("yaml").SafeLoader)

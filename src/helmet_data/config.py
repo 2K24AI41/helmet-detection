@@ -296,22 +296,37 @@ _StrictLoader.add_constructor("tag:yaml.org,2002:int", _construct_safe_int)
 _StrictLoader.add_constructor("tag:yaml.org,2002:float", _construct_safe_float)
 
 
+def load_yaml_strict(path: Union[str, Path], *, what: str = "configuration file") -> Any:
+    """Parse a YAML file with the project's strict, safe loader and return the raw data.
+
+    Strictness: no arbitrary object construction (``SafeLoader`` subclass), duplicate
+    mapping keys are rejected, and ambiguous legacy YAML 1.1 numbers (leading-zero octal
+    such as ``010`` and sexagesimal such as ``6:40``) are rejected. An empty file returns
+    ``None``. A missing file, unreadable or undecodable file, or invalid YAML raises
+    ``ConfigError``. ``what`` (default ``"configuration file"``) names the kind of file in
+    exactly two messages, ``"<what> not found: <path>"`` and ``"cannot read <what> <path>:
+    <reason>"``. The ``"invalid YAML in <path>: <reason>"`` message does not use it. With
+    the default, all three messages are exactly those ``load_config`` has always produced.
+    """
+    config_path = Path(path)
+    if not config_path.is_file():
+        raise ConfigError(f"{what} not found: {config_path}")
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            # _StrictLoader is a SafeLoader subclass: no arbitrary object construction.
+            return yaml.load(handle, Loader=_StrictLoader)  # noqa: S506
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"invalid YAML in {config_path}: {exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"cannot read {what} {config_path}: {exc}") from exc
+
+
 def load_config(path: Union[str, Path]) -> PipelineConfig:
     """Load and validate a YAML configuration file.
 
     A missing or unreadable file is a ``ConfigError``. An empty file yields the defaults.
     """
-    config_path = Path(path)
-    if not config_path.is_file():
-        raise ConfigError(f"configuration file not found: {config_path}")
-    try:
-        with config_path.open("r", encoding="utf-8") as handle:
-            # _StrictLoader is a SafeLoader subclass: no arbitrary object construction.
-            data = yaml.load(handle, Loader=_StrictLoader)  # noqa: S506
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"invalid YAML in {config_path}: {exc}") from exc
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"cannot read configuration file {config_path}: {exc}") from exc
+    data = load_yaml_strict(path)
     if data is None:
         data = {}
     return parse_config(data)
